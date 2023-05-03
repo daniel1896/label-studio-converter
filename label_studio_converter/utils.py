@@ -19,6 +19,8 @@ from nltk.tokenize.treebank import TreebankWordTokenizer
 from lxml import etree
 from collections import defaultdict
 from label_studio_tools.core.utils.params import get_env
+import subprocess
+# from setuptools import glob
 
 logger = logging.getLogger(__name__)
 
@@ -388,3 +390,28 @@ def prettify_result(v):
         else:
             out.append(j)
     return out[0] if tag_type in ('Choices', 'TextArea') and len(out) == 1 else out
+
+
+def extract_frames_from_video(video_path, frame_dir, frame_format='jpg', frame_name_format='frame_%06d'):
+    """Extract frames from video and save them to frame_dir
+
+    :param video_path: path to video
+    :param frame_dir: path to directory to save frames
+    :param frame_format: format of frames, default is 'jpg'
+    :param frame_name_format: format of frame name, default is 'frame_%06d'
+    :return: list of paths to extracted frames
+    """
+    if not os.path.exists(frame_dir):
+        os.makedirs(frame_dir)
+    frame_path_format = os.path.join(frame_dir, frame_name_format + '.' + frame_format)
+    cmd = [
+        'ffmpeg',
+        '-i',
+        video_path,
+        '-qscale:v',
+        '0',
+        frame_path_format,
+    ]
+    subprocess.run(cmd)
+    return [os.path.join(frame_dir, frame_name_format % i) for i in range(len(os.listdir(frame_dir)))]
+    # return sorted(glob.glob(os.path.join(frame_dir, '*.' + frame_format)))

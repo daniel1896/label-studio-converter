@@ -15,6 +15,7 @@ from collections import defaultdict
 from operator import itemgetter
 from copy import deepcopy
 from PIL import Image
+import numpy as np
 
 from label_studio_converter.exports import csv2
 
@@ -30,6 +31,7 @@ from label_studio_converter.utils import (
     get_annotator,
     get_json_root_type,
     prettify_result,
+    extract_frames_from_video,
 )
 from label_studio_converter import brush
 from label_studio_converter.audio import convert_to_asr_json_manifest
@@ -659,6 +661,222 @@ class Converter(object):
                             'area': get_polygon_area(x, y),
                         }
                     )
+                else:
+                    raise ValueError("Unknown label type")
+
+                if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
+                    annotations[-1].update({'annotator': get_annotator(item)})
+
+        with io.open(output_file, mode='w', encoding='utf8') as fout:
+            json.dump(
+                {
+                    'images': images,
+                    'categories': categories,
+                    'annotations': annotations,
+                    'info': {
+                        'year': datetime.now().year,
+                        'version': '1.0',
+                        'description': '',
+                        'contributor': 'Label Studio',
+                        'url': '',
+                        'date_created': str(datetime.now()),
+                    },
+                },
+                fout,
+                indent=2,
+            )
+
+    def convert_video_to_coco(
+            self, input_data, output_dir, output_image_dir=None, is_dir=True
+    ):
+        def add_image(images, width, height, image_id, image_path):
+            images.append(
+                {
+                    'width': width,
+                    'height': height,
+                    'id': image_id,
+                    'file_name': image_path,
+                }
+            )
+            return images
+
+        data_key = self._data_keys[0]
+        assert data_key == 'video', 'Video to COCO conversion is only supported for video input'
+
+        self._check_format(Format.COCO)
+        ensure_dir(output_dir)
+        output_file = os.path.join(output_dir, 'result.json')
+        if output_image_dir is not None:
+            ensure_dir(output_image_dir)
+        else:
+            output_image_dir = os.path.join(output_dir, 'images')
+            os.makedirs(output_image_dir, exist_ok=True)
+        images, categories, annotations = [], [], []
+        categories, category_name_to_id = self._get_labels()
+        data_key = self._data_keys[0]
+        item_iterator = (
+            self.iter_from_dir(input_data)
+            if is_dir
+            else self.iter_from_json_file(input_data)
+        )
+
+        for item_idx, item in enumerate(item_iterator):
+            video_path = item['input'][data_key]
+            image_id = len(images)
+            width = None
+            height = None
+            # edit file path in case of local file storage project setup
+            if self.project_dir is not None:
+                video_path = video_path.replace('/data/local-files/?d=', self.project_dir)
+            else:
+                video_path = video_path.replace('/data/local-files/?d=', '')
+                logger.warning(
+                    'The Label Studio project has been set up with a local file storage, therefore '
+                    'the video {video_path} might not be available on the server without specifying '
+                    'the project directory.'.format(video_path=video_path)
+                )
+            # download all images of the dataset, including the ones without annotations
+            if not os.path.exists(video_path):
+                if video_path.startswith('/data/local-files/?d='):
+                        continue
+                try:
+                    video_path = download(
+                        video_path,
+                        output_image_dir,
+                        project_dir=self.project_dir,
+                        return_relative_path=True,
+                        upload_dir=self.upload_dir,
+                        download_resources=self.download_resources,
+                    )
+                except:
+                    logger.info(
+                        'Unable to download {image_path}. The image of {item} will be skipped'.format(
+                            image_path=video_path, item=item
+                        ),
+                        exc_info=True,
+                    )
+            # extract video frames
+            if os.path.exists(video_path):
+                try:
+                    video_path = extract_frames_from_video(video_path, output_image_dir)
+                except:
+                    logger.info(
+                        'Unable to extract frames from {video_path}. The image of {item} will be skipped'.format(
+                            video_path=video_path, item=item
+                        ),
+                        exc_info=True,
+                    )
+            else:
+                logger.info(
+                    'Unable to find {image_path}. The image of {item} will be skipped'.format(
+                        image_path=video_path, item=item
+                    ),
+                    exc_info=True,
+                )
+                continue
+            # add extracted images to the list
+            for image_path in os.listdir(output_image_dir):
+                if image_path.endswith(('jpg', 'jpeg', 'png', 'bmp')):
+                    image_id = len(images)
+                    try:
+                        with Image.open(os.path.join(output_image_dir, image_path)) as img:
+                            width, height = img.size
+                        images = add_image(images, width, height, image_id, image_path)
+                    except:
+                        logger.info(
+                            "Unable to open {image_path}, can't extract width and height for COCO export".format(
+                                image_path=image_path, item=item
+                            ),
+                            exc_info=True,
+                        )
+
+            # skip tasks without annotations
+            if not item['output']:
+                # image wasn't load and there are no labels
+                if not width:
+                    images = add_image(images, width, height, image_id, video_path)
+
+                logger.warning('No annotations found for item #' + str(item_idx))
+                continue
+
+            # concatenate results over all tag names
+            labels = []
+            for key in item['output']:
+                labels += item['output'][key]
+
+            if len(labels) == 0:
+                logger.debug(f'Empty bboxes for {item["output"]}')
+                continue
+
+            annotation_id = 0
+            for label in labels:
+                category_name = None
+                for key in ['rectanglelabels', 'polygonlabels', 'labels']:
+                    if key in label and len(label[key]) > 0:
+                        category_name = label[key][0]
+                        break
+
+                if category_name is None:
+                    logger.warning("Unknown label type or labels are empty")
+                    continue
+
+                if not height or not width:
+                    if 'original_width' not in label or 'original_height' not in label:
+                        logger.debug(
+                            f'original_width or original_height not found in {video_path}'
+                        )
+                        continue
+
+                    width, height = label['original_width'], label['original_height']
+                    images = add_image(images, width, height, image_id, video_path)
+
+                category_id = category_name_to_id[category_name]
+
+                if 'sequence' in label:
+                    # interpolate between keyframes
+                    for k_idx, keyframe in enumerate(label['sequence']):
+                        frame_id = keyframe['frame']
+                        x0, y0, w0, h0 = self.rotated_rectangle(keyframe)
+                        # if interpolation for this keyframe is enabled
+                        if keyframe['enabled'] is True and k_idx < len(label['sequence']) - 1:
+                            # get the next keyframe
+                            keyframe_next = label['sequence'][k_idx + 1]
+                            frame_id_next = keyframe_next['frame']
+                            interp_n = frame_id_next - frame_id
+                            # interpolate between the current and the next keyframe
+                            x1, y1, w1, h1 = self.rotated_rectangle(keyframe_next)
+                            x = np.linspace(x0, x1, interp_n, endpoint=False) * width / 100
+                            y = np.linspace(y0, y1, interp_n, endpoint=False) * height / 100
+                            w = np.linspace(w0, w1, interp_n, endpoint=False) * width / 100
+                            h = np.linspace(h0, h1, interp_n, endpoint=False) * height / 100
+                            for i in range(interp_n):
+                                annotations.append(
+                                    {
+                                        'id': annotation_id,
+                                        'image_id': keyframe['frame']+i,
+                                        'category_id': category_id,
+                                        'segmentation': [],
+                                        'bbox': [x[i], y[i], w[i], h[i]],
+                                        'ignore': 0,
+                                        'iscrowd': 0,
+                                        'area': w[i] * h[i],
+                                    }
+                                )
+                                annotation_id += 1
+                        else:
+                            annotations.append(
+                                {
+                                    'id': annotation_id,
+                                    'image_id': frame_id,
+                                    'category_id': category_id,
+                                    'segmentation': [],
+                                    'bbox': [x0 * width / 100, y0 * height / 100, w0 * width / 100, h0 * height / 100],
+                                    'ignore': 0,
+                                    'iscrowd': 0,
+                                    'area': w0 * h0,
+                                }
+                            )
+                            annotation_id += 1
                 else:
                     raise ValueError("Unknown label type")
 
