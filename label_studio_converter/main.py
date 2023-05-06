@@ -76,6 +76,12 @@ def get_export_args(parser):
         default=True,
         help='Set this flag if your annotations are in one JSON file instead of multiple JSON files from directory',
     )
+    parser.add_argument(
+        '--video-file-path',
+        dest='video_file_path',
+        default=None,
+        help='Path to video file. If not specified, video file path will be taken from the provided json annotations file',
+    )
 
 
 def get_all_args():
@@ -136,12 +142,22 @@ def export(args):
     elif args.format == Format.CONLL2003:
         c.convert_to_conll2003(args.input, args.output, is_dir=not args.heartex_format)
     elif args.format == Format.COCO:
-        c.convert_to_coco(
-            args.input,
-            args.output,
-            output_image_dir=args.image_dir,
-            is_dir=not args.heartex_format,
-        )
+        # determine if it is in Label Studio image or video annotation format
+        # and use the appropriate converter
+        if c._data_keys[0] == "video":
+            c.convert_video_to_coco(
+                args.input,
+                args.output,
+                is_dir=not args.heartex_format,
+                video_file_path=args.video_file_path,
+            )
+        elif c._data_keys[0] == "image":
+            c.convert_to_coco(
+                args.input,
+                args.output,
+                output_image_dir=args.image_dir,
+                is_dir=not args.heartex_format,
+            )
     elif args.format == Format.VOC:
         c.convert_to_voc(
             args.input,
