@@ -1,4 +1,38 @@
-# Label Studio Converter
+# (Our) Label Studio Converter (Fork)
+
+We add the ability to convert exported Label Studio video annotation JSON files to COCO format.
+
+Installation:
+- clone this repo
+- ```pip install -v -e .``` (in the repo directory)
+
+How to use:
+**Running from the command line:**
+
+```bash
+python label_studio_converter/main.py export -i 'exported_from_label_studio.json' -f COCO -c 'label-studio-config.xml' -o '/home/fabian/Desktop/output_std' (--video-file-path '/home/fabian/Downloads/00001_overlayed.mp4')
+
+```
+The --video-file-path argument is optional. If it is not provided, the video file path is assumed to be the same as the path of the video given in the JSON file.
+
+**Running from python:**
+```python
+from label_studio_converter import Converter
+
+c = Converter('examples/sentiment_analysis/config.xml')
+c.convert_video_to_coco(
+    "exported_from_label_studio.json",  # input file
+    "path/to/output/dir" # output directory
+    (video_file_path=args.video_file_path) # optional video file path
+)
+```
+
+
+---------------------
+-----------------
+# Original Repo README:
+
+
 
 [Website](https://labelstud.io/) • [Docs](https://labelstud.io/guide) • [Twitter](https://twitter.com/heartexlabs) • [Join Slack Community <img src="https://app.heartex.ai/docs/images/slack-mini.png" width="18px"/>](https://slack.labelstudio.heartex.com)
 

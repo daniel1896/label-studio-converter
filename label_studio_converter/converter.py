@@ -16,6 +16,7 @@ from operator import itemgetter
 from copy import deepcopy
 from PIL import Image
 import numpy as np
+import cv2
 
 from label_studio_converter.exports import csv2
 
@@ -31,7 +32,6 @@ from label_studio_converter.utils import (
     get_annotator,
     get_json_root_type,
     prettify_result,
-    extract_frames_from_video,
 )
 from label_studio_converter import brush
 from label_studio_converter.audio import convert_to_asr_json_manifest
@@ -687,7 +687,7 @@ class Converter(object):
             )
 
     def convert_video_to_coco(
-            self, input_data, output_dir, output_image_dir=None, is_dir=True
+            self, input_data, output_dir, is_dir=True, video_file_path=None
     ):
         def add_image(images, width, height, image_id, image_path):
             images.append(
@@ -705,12 +705,7 @@ class Converter(object):
 
         self._check_format(Format.COCO)
         ensure_dir(output_dir)
-        output_file = os.path.join(output_dir, 'result.json')
-        if output_image_dir is not None:
-            ensure_dir(output_image_dir)
-        else:
-            output_image_dir = os.path.join(output_dir, 'images')
-            os.makedirs(output_image_dir, exist_ok=True)
+        output_file = os.path.join(output_dir, input_data.split('/')[-1].split('.')[0] + '_coco.json')
         images, categories, annotations = [], [], []
         categories, category_name_to_id = self._get_labels()
         data_key = self._data_keys[0]
@@ -725,79 +720,32 @@ class Converter(object):
             image_id = len(images)
             width = None
             height = None
-            # edit file path in case of local file storage project setup
-            if self.project_dir is not None:
-                video_path = video_path.replace('/data/local-files/?d=', self.project_dir)
-            else:
-                video_path = video_path.replace('/data/local-files/?d=', '')
-                logger.warning(
-                    'The Label Studio project has been set up with a local file storage, therefore '
-                    'the video {video_path} might not be available on the server without specifying '
-                    'the project directory.'.format(video_path=video_path)
-                )
-            # download all images of the dataset, including the ones without annotations
-            if not os.path.exists(video_path):
-                if video_path.startswith('/data/local-files/?d='):
-                        continue
-                try:
-                    video_path = download(
-                        video_path,
-                        output_image_dir,
-                        project_dir=self.project_dir,
-                        return_relative_path=True,
-                        upload_dir=self.upload_dir,
-                        download_resources=self.download_resources,
-                    )
-                except:
-                    logger.info(
-                        'Unable to download {image_path}. The image of {item} will be skipped'.format(
-                            image_path=video_path, item=item
-                        ),
-                        exc_info=True,
-                    )
-            # extract video frames
-            if os.path.exists(video_path):
-                try:
-                    video_path = extract_frames_from_video(video_path, output_image_dir)
-                except:
-                    logger.info(
-                        'Unable to extract frames from {video_path}. The image of {item} will be skipped'.format(
-                            video_path=video_path, item=item
-                        ),
-                        exc_info=True,
-                    )
-            else:
-                logger.info(
-                    'Unable to find {image_path}. The image of {item} will be skipped'.format(
-                        image_path=video_path, item=item
-                    ),
-                    exc_info=True,
-                )
-                continue
-            # add extracted images to the list
-            for image_path in os.listdir(output_image_dir):
-                if image_path.endswith(('jpg', 'jpeg', 'png', 'bmp')):
-                    image_id = len(images)
-                    try:
-                        with Image.open(os.path.join(output_image_dir, image_path)) as img:
-                            width, height = img.size
-                        images = add_image(images, width, height, image_id, image_path)
-                    except:
-                        logger.info(
-                            "Unable to open {image_path}, can't extract width and height for COCO export".format(
-                                image_path=image_path, item=item
-                            ),
-                            exc_info=True,
-                        )
 
-            # skip tasks without annotations
-            if not item['output']:
-                # image wasn't load and there are no labels
-                if not width:
-                    images = add_image(images, width, height, image_id, video_path)
 
-                logger.warning('No annotations found for item #' + str(item_idx))
-                continue
+            # todo: replace with the correct path from daniels Synology storage
+            #video_path = video_path.replace('/data/local-files/?d=', ...)
+            if not os.path.exists(video_path) and video_file_path is not None:
+                video_path = video_file_path
+            
+            # load the video and extract the following information: width, height, fps, duration, total frames
+            video = cv2.VideoCapture(video_path)
+            if not video.isOpened():
+                raise Exception("Could not open video file: {}".format(video_path))
+            width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = video.get(cv2.CAP_PROP_FPS)
+            duration = video.get(cv2.CAP_PROP_FRAME_COUNT) / fps
+            total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+            video.release()
+            
+            assert item["output"]["box"][0]["framesCount"] == total_frames, "Total frames in video: {}, {} does not match the number of frames given in the json: {} {}. Hint: You may have used the original video, please use the overlayed one as it is a little bit shorter due to the std calculation.".format(total_frames, video_path, input_data, item["output"]["box"][0]["framesCount"])
+
+            # add video frames names to the images list
+            for i in range(total_frames):
+                filename = os.path.basename(video_path).split('.')[0] + '_frame_' + str(i+5) + '.png'
+                filename = filename.replace('_overlayed', '')
+                image_id = len(images)
+                images = add_image(images, width, height, image_id, filename)
 
             # concatenate results over all tag names
             labels = []
@@ -819,16 +767,6 @@ class Converter(object):
                 if category_name is None:
                     logger.warning("Unknown label type or labels are empty")
                     continue
-
-                if not height or not width:
-                    if 'original_width' not in label or 'original_height' not in label:
-                        logger.debug(
-                            f'original_width or original_height not found in {video_path}'
-                        )
-                        continue
-
-                    width, height = label['original_width'], label['original_height']
-                    images = add_image(images, width, height, image_id, video_path)
 
                 category_id = category_name_to_id[category_name]
 
@@ -901,6 +839,7 @@ class Converter(object):
                 fout,
                 indent=2,
             )
+        print('COCO format JSON Exported to', output_file)
 
     def convert_to_yolo(
         self,
