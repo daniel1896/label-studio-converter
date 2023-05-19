@@ -724,6 +724,8 @@ class Converter(object):
 
             # todo: replace with the correct path from daniels Synology storage
             #video_path = video_path.replace('/data/local-files/?d=', ...)
+            if "?d=" in video_path:
+                video_path = video_path.replace("/data/local-files/?d=", "/mnt/remote/DroneDetection/")
             if not os.path.exists(video_path) and video_file_path is not None:
                 video_path = video_file_path
             
