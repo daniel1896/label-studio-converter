@@ -775,13 +775,13 @@ class Converter(object):
                 if 'sequence' in label:
                     # interpolate between keyframes
                     for k_idx, keyframe in enumerate(label['sequence']):
-                        frame_id = keyframe['frame']
+                        frame_id = keyframe['frame']+1 + (keyframe['frame'] // 2998)
                         x0, y0, w0, h0 = self.rotated_rectangle(keyframe)
                         # if interpolation for this keyframe is enabled
                         if keyframe['enabled'] is True and k_idx < len(label['sequence']) - 1:
                             # get the next keyframe
                             keyframe_next = label['sequence'][k_idx + 1]
-                            frame_id_next = keyframe_next['frame']
+                            frame_id_next = keyframe_next['frame']+1
                             interp_n = frame_id_next - frame_id
                             # interpolate between the current and the next keyframe
                             x1, y1, w1, h1 = self.rotated_rectangle(keyframe_next)
@@ -790,10 +790,16 @@ class Converter(object):
                             w = np.linspace(w0, w1, interp_n, endpoint=False) * width / 100
                             h = np.linspace(h0, h1, interp_n, endpoint=False) * height / 100
                             for i in range(interp_n):
+                                image_id = frame_id+i
+                                # TODO: fix this hack!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                                image_id_conv = image_id+1 + (image_id // 2999)
+                                if image_id_conv > total_frames:
+                                    break
+
                                 annotations.append(
                                     {
                                         'id': annotation_id,
-                                        'image_id': keyframe['frame']+i,
+                                        'image_id': image_id_conv,
                                         'category_id': category_id,
                                         'segmentation': [],
                                         'bbox': [x[i], y[i], w[i], h[i]],
@@ -804,10 +810,14 @@ class Converter(object):
                                 )
                                 annotation_id += 1
                         else:
+                            # TODO: fix this hack!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                            image_id_conv = frame_id + 1 + (frame_id // 2999)
+                            if image_id_conv > total_frames:
+                                break
                             annotations.append(
                                 {
                                     'id': annotation_id,
-                                    'image_id': frame_id,
+                                    'image_id': image_id_conv,
                                     'category_id': category_id,
                                     'segmentation': [],
                                     'bbox': [x0 * width / 100, y0 * height / 100, w0 * width / 100, h0 * height / 100],
