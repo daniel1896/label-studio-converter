@@ -775,13 +775,13 @@ class Converter(object):
                 if 'sequence' in label:
                     # interpolate between keyframes
                     for k_idx, keyframe in enumerate(label['sequence']):
-                        frame_id = keyframe['frame']+1 + (keyframe['frame'] // 2998)
+                        frame_id = keyframe['frame']
                         x0, y0, w0, h0 = self.rotated_rectangle(keyframe)
                         # if interpolation for this keyframe is enabled
                         if keyframe['enabled'] is True and k_idx < len(label['sequence']) - 1:
                             # get the next keyframe
                             keyframe_next = label['sequence'][k_idx + 1]
-                            frame_id_next = keyframe_next['frame']+1
+                            frame_id_next = keyframe_next['frame']
                             interp_n = frame_id_next - frame_id
                             # interpolate between the current and the next keyframe
                             x1, y1, w1, h1 = self.rotated_rectangle(keyframe_next)
