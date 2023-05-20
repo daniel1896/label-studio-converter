@@ -739,9 +739,10 @@ class Converter(object):
             duration = video.get(cv2.CAP_PROP_FRAME_COUNT) / fps
             total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
             video.release()
-
-            # TODO: fix this hack!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            # assert item["output"]["box"][0]["framesCount"] == total_frames, "Total frames in video: {}, {} does not match the number of frames given in the json: {} {}. Hint: You may have used the original video, please use the overlayed one as it is a little bit shorter due to the std calculation.".format(total_frames, video_path, input_data, item["output"]["box"][0]["framesCount"])
+            
+            #assert item["output"]["box"][0]["framesCount"] == total_frames, "Total frames in video: {}, {} does not match the number of frames given in the json: {} {}. Hint: You may have used the original video, please use the overlayed one as it is a little bit shorter due to the std calculation.".format(total_frames, video_path, input_data, item["output"]["box"][0]["framesCount"])
+            if item["output"]["box"][0]["framesCount"] != total_frames:
+                logger.warning("Total frames in video: {}, {} does not match the number of frames given in the json: {} {}. Hint: You may have used the original video, please use the overlayed one as it is a little bit shorter due to the std calculation.".format(total_frames, video_path, input_data, item["output"]["box"][0]["framesCount"]))
 
             # add video frames names to the images list
             for i in range(total_frames):
@@ -793,7 +794,7 @@ class Converter(object):
                             for i in range(interp_n):
                                 image_id = frame_id+i
                                 # TODO: fix this hack!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                                image_id_conv = image_id+1 + (image_id // 2999)
+                                image_id_conv = image_id + (image_id // 2999)
                                 if image_id_conv > total_frames:
                                     break
 
@@ -812,7 +813,7 @@ class Converter(object):
                                 annotation_id += 1
                         else:
                             # TODO: fix this hack!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                            image_id_conv = frame_id + 1 + (frame_id // 2999)
+                            image_id_conv = frame_id + (frame_id // 2999)
                             if image_id_conv > total_frames:
                                 break
                             annotations.append(
