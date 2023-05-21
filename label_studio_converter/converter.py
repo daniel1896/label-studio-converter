@@ -714,7 +714,8 @@ class Converter(object):
             if is_dir
             else self.iter_from_json_file(input_data)
         )
-
+        
+        total_images_in_dataset = 0
         for item_idx, item in enumerate(item_iterator):
             video_path = item['input'][data_key]
             image_id = len(images)
@@ -723,7 +724,6 @@ class Converter(object):
 
 
             # todo: replace with the correct path from daniels Synology storage
-            #video_path = video_path.replace('/data/local-files/?d=', ...)
             if "?d=" in video_path:
                 video_path = video_path.replace("/data/local-files/?d=", "/mnt/remote/DroneDetection/")
             if not os.path.exists(video_path) and video_file_path is not None:
@@ -800,8 +800,8 @@ class Converter(object):
 
                                 annotations.append(
                                     {
-                                        'id': annotation_id,
-                                        'image_id': image_id_conv,
+                                        'id': annotation_id + total_images_in_dataset,
+                                        'image_id': image_id_conv + total_images_in_dataset,
                                         'category_id': category_id,
                                         'segmentation': [],
                                         'bbox': [x[i], y[i], w[i], h[i]],
@@ -818,8 +818,8 @@ class Converter(object):
                                 break
                             annotations.append(
                                 {
-                                    'id': annotation_id,
-                                    'image_id': image_id_conv,
+                                    'id': annotation_id + total_images_in_dataset,
+                                    'image_id': image_id_conv + total_images_in_dataset,
                                     'category_id': category_id,
                                     'segmentation': [],
                                     'bbox': [x0 * width / 100, y0 * height / 100, w0 * width / 100, h0 * height / 100],
@@ -834,6 +834,8 @@ class Converter(object):
 
                 if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
                     annotations[-1].update({'annotator': get_annotator(item)})
+                
+            total_images_in_dataset += total_frames
 
         with io.open(output_file, mode='w', encoding='utf8') as fout:
             json.dump(
